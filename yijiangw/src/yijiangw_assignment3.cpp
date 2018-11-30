@@ -49,7 +49,9 @@
 #define DV_fd DV_socket
 #define TCP_TYPE SOCK_STREAM
 #define UDP_TYPE SOCK_DGRAM
-#define STDIN 0
+//数据包缓存4k
+#define BUFFER_SIZE 4096
+
 #define TRUE 1
 #define TIMEOUT 1
 
@@ -114,6 +116,8 @@ int main(int argc, char **argv)
         perror("cmd connect accept failed.");
         return 0;
     }
+    printf("controller connected!\n");
+    FD_SET(cmd_fd, &master_list);
 
     //开始接受数据
     while(1)
@@ -131,11 +135,29 @@ int main(int argc, char **argv)
                 {
                     if (fd_index==cmd_socket)  //controller 重连
                     {
+                        socket_accept(cmd_socket,&cmd_fd);
+                        printf("controller reconnected!\n");
+                        FD_SET(cmd_fd, &master_list);
                     }
                     else if(fd_index==cmd_fd)   //controller 命令
                     {
+                        //准备buffer 接收数据
+                        char *buffer = (char *)malloc(sizeof(char) * BUFFER_SIZE);
+                        memset(buffer, '\0', BUFFER_SIZE);
+
+                        if (recv(fd_index, buffer, BUFFER_SIZE, 0) <= 0)// controller 断开
+                            {
+                                close(fd_index);
+                                printf("controller terminated connection!\n");
+                                /* Remove from watched list */
+                                FD_CLR(fd_index, &master_list);
+                            }
+                        else
+                        {
+                            //获取
+                        }
                     }
-                    else if(fd_index==data_socket) //数据tcp 连接 accept
+                    else if(fd_index==data_socket) //数据文件传输 tcp 连接 accept
                     {
                     }
                     else if(fd_index==DV_socket)  // 接收 DV
