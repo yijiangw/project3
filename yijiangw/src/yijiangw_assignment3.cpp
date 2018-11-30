@@ -49,8 +49,13 @@
 #define DV_fd DV_socket
 #define TCP_TYPE SOCK_STREAM
 #define UDP_TYPE SOCK_DGRAM
+
+#define FINISH 0x80000000
+
 //数据包缓存4k
 #define BUFFER_SIZE 4096
+#define MOSTHEAD_SIZE 8
+#define DATAHEAD_SIZE 12
 
 #define TRUE 1
 #define TIMEOUT 1
@@ -77,6 +82,37 @@ struct timeval tv; //select 间隔时间
 struct sockaddr_in  server_addr,client_addr;
 
 fd_set master_list, watch_list;  //master_list存储 fd list   watch_list为 mster list 副本 使用中会变化作为临时存储
+
+
+//所有数据包的数据结构
+struct packet_abstract
+{
+    char head[MOSTHEAD_SIZE];
+    char payload[BUFFER_SIZE-MOSTHEAD_SIZE];
+};
+struct data_packet
+{
+    struct in_addr destination;
+    short trans_id;
+    short TTL;
+    short seq;
+    unsigned int FIN;  //初始化时全填0， 然后在finish的时候 设置 FIN = FINSH
+    char payload[1024];
+};
+struct routingupdate_head
+{
+    short update_count;
+    unsigned short source_port;
+    struct in_addr source_ip;
+};
+struct routingupdate_router
+{
+    struct in_addr router_ip;
+    unsigned short source_port;
+    short padding;
+    short router_id;
+    unsigned short cost;
+};
 
 
 int main(int argc, char **argv)
