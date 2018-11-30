@@ -124,8 +124,8 @@ int main(int argc, char **argv)
     {
         memcpy(&watch_list, &master_list, sizeof(master_list));
         settv = tv;
-        selret = select(max_fd + 1, &watch_list, NULL, NULL, *settv);  //利用 远小于DV更新间隔的时间段tv 作为select 时间段
-        if((selret > 0) //有 fd 活动
+        selret = select(max_fd + 1, &watch_list, NULL, NULL, &settv);  //利用 远小于DV更新间隔的时间段tv 作为select 时间段
+        if(selret > 0) //有 fd 活动
         {
 
             for (fd_index = 0; fd_index <= max_fd; fd_index++)
