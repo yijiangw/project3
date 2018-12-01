@@ -71,25 +71,46 @@ int socket_init(int *targetsocket,int port,int type);
 //accept 连接指定socket 并设置到新fd
 int socket_accept(int targetsocket,int *new_fd);
 
-int cmd_port,data_port,DV_port;
+struct in_addr hostIP,controllerIP; //本机IP, controller IP   in_addr  就是 uint32_t   that's a 32-bit int (4 bytes)
+int cmd_port,data_port,DV_port;  //存储本机的三个端口
 int cmd_socket,data_socket,DV_socket; //cmd 监听listen连接socket  数据监听连接socket  距离向量UDP接受socket
 int cmd_fd,data_fd[MAX_CLIENT]; //命令接受 fd  数据文件接受fd  距离向量UDP fd 和 DV_socket 一样
 int max_fd, fd_index;  // 最大fd  当前fd 用于循环检查
 int selret; //select阻塞结束后的执行结果，小于0执行出错 大于0成功
 struct timeval tv; //select 间隔时间
 
-//struct sockaddr_in cmd_addr, data_addr, client_addr; //存地址信息用的
-struct sockaddr_in  server_addr,client_addr;
+//struct sockaddr_in cmd_addr, data_addr, client_addr; //存地址信息用的 (取消)
+//
+struct sockaddr_in  server_addr,client_addr;// 建立socket中使用
 
 fd_set master_list, watch_list;  //master_list存储 fd list   watch_list为 mster list 副本 使用中会变化作为临时存储
+//路由ID IP对应表
+struct in_addr routerIP[MAX_CLIENT];    //routerIP [n] 是 ID 为 n 的路由IP  || INIT初始化后不变
+//路由 ID 端口对应表
+struct in_addr routerPort[MAX_CLIENT][2];  //[n][] index n 是相应的 routerID; [n][0] 是 DV更新UDP端口; [n][1] 是 文件传输连接TCP端口; || INIT初始化后不变
+//路由表
+unsigned short int routing_table[MAX_CLIENT][2]; //[n][] index n 是相应的 routerID; [n][0] 是 nexthop; [n][1] 是 cost; || INIT初始化，DV过程改变
+//拓扑图
+unsigned short int topology [MAX_CLIENT][MAX_CLIENT]; // [x][y]表示x和y之间的cost， 初始化为-1 0xFFFF || INIT初始化，UPDATE命令改变
+//是否相邻路由
+bool linked[MAX_CLIENT]; //linked [n] 是 true 的话 ID 为 n 的路由IP 直接与本机相连
 
-
-//所有数据包的数据结构
+//大多数数据包的基本数据结构  controller命令交互和DV更新
 struct packet_abstract
 {
     char head[MOSTHEAD_SIZE];
     char payload[BUFFER_SIZE-MOSTHEAD_SIZE];
 };
+struct controlpk_head
+{
+    struct in_addr destination;
+    uint8_t control_code;   //就是 unsigned char
+    uint8_t response_time;
+    unsigned short int payload_len;
+};
+
+
+//文件数据包的数据结构
 struct data_packet
 {
     struct in_addr destination;
@@ -99,12 +120,17 @@ struct data_packet
     unsigned int FIN;  //初始化时全填0， 然后在finish的时候 设置 FIN = FINSH
     char payload[1024];
 };
+
+//DV路由更新包头
 struct routingupdate_head
 {
     short update_count;
     unsigned short source_port;
     struct in_addr source_ip;
 };
+typedef routingupdate_head DVpk_head;  //两种名称 随便选用
+
+//DV路由更新路由项
 struct routingupdate_router
 {
     struct in_addr router_ip;
@@ -113,7 +139,7 @@ struct routingupdate_router
     short router_id;
     unsigned short cost;
 };
-
+typedef routingupdate_head DVpk_item;
 
 int main(int argc, char **argv)
 {
@@ -127,6 +153,14 @@ int main(int argc, char **argv)
 
 
     //begin
+    // get extern ip
+    char szHostName[256];
+    gethostname(szHostName, sizeof(szHostName));
+    struct hostent *hostinfo = gethostbyname(szHostName);
+    char * extern_ip = inet_ntoa(*(struct in_addr*)*hostinfo->h_addr_list);
+    hostIP = *(struct in_addr*)*hostinfo->h_addr_list;
+
+
     cmd_port = atoi(argv[1]);
     tv.tv_sec = TIMEOUT;
     tv.tv_usec = 0;
@@ -182,12 +216,12 @@ int main(int argc, char **argv)
                         memset(buffer, '\0', BUFFER_SIZE);
 
                         if (recv(fd_index, buffer, BUFFER_SIZE, 0) <= 0)// controller 断开
-                            {
-                                close(fd_index);
-                                printf("controller terminated connection!\n");
-                                /* Remove from watched list */
-                                FD_CLR(fd_index, &master_list);
-                            }
+                        {
+                            close(fd_index);
+                            printf("controller terminated connection!\n");
+                            /* Remove from watched list */
+                            FD_CLR(fd_index, &master_list);
+                        }
                         else
                         {
                             //获取
