@@ -106,7 +106,15 @@ struct controlpk_head
     struct in_addr destination;
     uint8_t control_code;   //就是 unsigned char
     uint8_t response_time;
-    unsigned short int payload_len;
+    uint16_t payload_len;
+};
+
+struct control_reponse_head
+{
+    struct in_addr controller_ip;
+    uint8_t control_code;
+    uint8_t response_code;
+    uint16_t payload_len;
 };
 
 
@@ -177,17 +185,17 @@ int main(int argc, char **argv)
 
     max_fd = cmd_socket;
     //wait be connected by controller
-    memcpy(&watch_list, &master_list, sizeof(master_list));
-    selret = select(max_fd + 1, &watch_list, NULL, NULL, NULL);
-    if (selret < 0)
-        perror("select failed.");
-    else if(selret > 0&&!socket_accept(cmd_socket,&cmd_fd))
-    {
-        perror("cmd connect accept failed.");
-        return 0;
-    }
-    printf("controller connected!\n");
-    FD_SET(cmd_fd, &master_list);
+    // memcpy(&watch_list, &master_list, sizeof(master_list));
+    // selret = select(max_fd + 1, &watch_list, NULL, NULL, NULL);
+    // if (selret < 0)
+    //     perror("select failed.");
+    // else if(selret > 0&&!socket_accept(cmd_socket,&cmd_fd))
+    // {
+    //     perror("cmd connect accept failed.");
+    //     return 0;
+    // }
+    // printf("controller connected!\n");
+    // FD_SET(cmd_fd, &master_list);
 
     //开始接受数据
     while(1)
@@ -206,25 +214,93 @@ int main(int argc, char **argv)
                     if (fd_index==cmd_socket)  //controller 重连
                     {
                         socket_accept(cmd_socket,&cmd_fd);
-                        printf("controller reconnected!\n");
+                        printf("controller reconnected %d!\n", fd_index);
                         FD_SET(cmd_fd, &master_list);
+                        struct sockaddr_in addr;
+                        socklen_t addr_size;
+                        addr_size = sizeof(struct sockaddr_in);
+                        getpeername(fd_index, (struct sockaddr *)&addr, &addr_size);
+                        controllerIP = addr.sin_addr;
+                        printf("%s\n", inet_ntoa(controllerIP));
                     }
                     else if(fd_index==cmd_fd)   //controller 命令
                     {
-                        //准备buffer 接收数据
-                        char *buffer = (char *)malloc(sizeof(char) * BUFFER_SIZE);
-                        memset(buffer, '\0', BUFFER_SIZE);
+                        //准备buffer 接收header
+                        char *buffer = (char *)malloc(sizeof(char) * MOSTHEAD_SIZE);
+                        memset(buffer, '\0', MOSTHEAD_SIZE);
 
-                        if (recv(fd_index, buffer, BUFFER_SIZE, 0) <= 0)// controller 断开
+                        if (recv(fd_index, buffer, MOSTHEAD_SIZE, 0) <= 0)// controller 断开
                         {
                             close(fd_index);
-                            printf("controller terminated connection!\n");
+                            printf("controller terminated connection %d!\n", fd_index);
                             /* Remove from watched list */
                             FD_CLR(fd_index, &master_list);
                         }
                         else
                         {
-                            //获取
+                            // read control header first
+                            struct controlpk_head *cpk_head = (struct controlpk_head *)malloc(sizeof(char) * MOSTHEAD_SIZE);
+                            memset(cpk_head, '\0', MOSTHEAD_SIZE);
+                            memcpy(cpk_head, buffer, MOSTHEAD_SIZE);
+                            int control_payload_len = cpk_head->payload_len;
+                            int control_code = cpk_head->control_code;
+                            // check if need recieve control payload
+                            printf("control payload len: %d", control_payload_len);
+                            if(control_payload_len != 0) {
+                                char *control_payload_buffer = (char *)malloc(sizeof(char) * control_payload_len);
+                                memset(control_payload_buffer, '\0', control_payload_len);
+                                recv(fd_index, control_payload_buffer, control_payload_len, 0);
+                            }
+                            // prepare control response
+                            struct control_reponse_head *crp_head =(struct control_reponse_head *)malloc(sizeof(char) * MOSTHEAD_SIZE);
+                            memset(crp_head, '\0', MOSTHEAD_SIZE);
+                            crp_head->control_code = 0;
+                            crp_head->controller_ip = controllerIP;
+                            crp_head->payload_len = 128;
+                            crp_head->response_code = 0;
+                            switch(control_code) {
+                                // AUTHOR [Control Code: 0x00]
+                                case 0:
+                                {
+                                    char *author_str = "I, yijiangw, have read and understood the course academic integrity policy.";
+                                    int author_payload_len = strlen(author_str)-1;
+                                    printf("str len %d\n", author_payload_len);
+                                    crp_head->control_code = 0;
+                                    crp_head->response_code = 0;
+                                    int response_code = 0;
+                                    crp_head->payload_len = htons(author_payload_len);
+                                    printf("payload len %d\n", crp_head->payload_len);
+                                    int author_response_len = MOSTHEAD_SIZE+author_payload_len;
+                                    char *response_buffer = (char *)malloc(sizeof(char) * author_response_len);
+                                    printf("res len %d\n",author_response_len);
+                                    memset(response_buffer, '\0', author_response_len);
+                                    // memcpy(response_buffer, &controllerIP, 4);
+                                    // memcpy(response_buffer+4,&control_code, 1);
+                                    // memcpy(response_buffer+5,&response_code, 1);
+                                    
+                                    // memcpy(response_buffer+6,&author_response_len, 2);
+                                    memcpy(response_buffer, crp_head, MOSTHEAD_SIZE);
+                                    memcpy(response_buffer+MOSTHEAD_SIZE, author_str, author_payload_len);
+                                    printf("SEND: %d\n", fd_index);
+                                    int sentbytes = send(fd_index, response_buffer, author_response_len, 0);
+                                    printf("sent bytes %d\n",sentbytes); 
+                                    break;
+                                }
+                                // INIT [Control Code: 0x01]
+                                case 1:
+                                {
+                                    break;
+                                }
+
+                                
+                            }
+                            if(cpk_head->control_code == 1) {
+                                
+
+                            }
+                            
+                            
+
                         }
                     }
                     else if(fd_index==data_socket) //数据文件传输 tcp 连接 accept
