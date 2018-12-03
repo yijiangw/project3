@@ -60,6 +60,8 @@
 #define TRUE 1
 #define TIMEOUT 1
 
+#define AUTHOR "I, yijiangw, have read and understood the course academic integrity policy."
+
 using namespace std;
 
 //连接指定 IP 和 端口  返回 socket fd
@@ -262,28 +264,20 @@ int main(int argc, char **argv)
                                 // AUTHOR [Control Code: 0x00]
                                 case 0:
                                 {
-                                    char *author_str = "I, yijiangw, have read and understood the course academic integrity policy.";
-                                    int author_payload_len = strlen(author_str)-1;
-                                    printf("str len %d\n", author_payload_len);
+
+                                    char *author_str = (char *)malloc(sizeof(AUTHOR));
+                                    strcpy(author_str, AUTHOR);
+                                    int author_payload_len = strlen(author_str);
                                     crp_head->control_code = 0;
                                     crp_head->response_code = 0;
                                     int response_code = 0;
                                     crp_head->payload_len = htons(author_payload_len);
-                                    printf("payload len %d\n", crp_head->payload_len);
                                     int author_response_len = MOSTHEAD_SIZE+author_payload_len;
                                     char *response_buffer = (char *)malloc(sizeof(char) * author_response_len);
-                                    printf("res len %d\n",author_response_len);
                                     memset(response_buffer, '\0', author_response_len);
-                                    // memcpy(response_buffer, &controllerIP, 4);
-                                    // memcpy(response_buffer+4,&control_code, 1);
-                                    // memcpy(response_buffer+5,&response_code, 1);
-                                    
-                                    // memcpy(response_buffer+6,&author_response_len, 2);
                                     memcpy(response_buffer, crp_head, MOSTHEAD_SIZE);
                                     memcpy(response_buffer+MOSTHEAD_SIZE, author_str, author_payload_len);
-                                    printf("SEND: %d\n", fd_index);
                                     int sentbytes = send(fd_index, response_buffer, author_response_len, 0);
-                                    printf("sent bytes %d\n",sentbytes); 
                                     break;
                                 }
                                 // INIT [Control Code: 0x01]
