@@ -62,12 +62,15 @@
 
 #define AUTHOR "I, yijiangw, have read and understood the course academic integrity policy."
 
+#define INF -1
+
 using namespace std;
 
 //连接指定 IP 和 端口  返回 socket fd
 int connect_to_host(char *server_ip, int server_port);
 //从 fd  返回 IP
 string getIP(int sockfd);
+in_addr getIP_in_addr(int sockfd);
 //用指定端口和类别初始化指定socket
 int socket_init(int *targetsocket,int port,int type);
 //accept 连接指定socket 并设置到新fd
@@ -81,6 +84,11 @@ int max_fd, fd_index;  // 最大fd  当前fd 用于循环检查
 int selret; //select阻塞结束后的执行结果，小于0执行出错 大于0成功
 struct timeval tv; //select 间隔时间
 
+
+uint16_t number_of_routers;
+uint16_t periodic_interval;
+unsigned short int host_ID;
+
 //struct sockaddr_in cmd_addr, data_addr, client_addr; //存地址信息用的 (取消)
 //
 struct sockaddr_in  server_addr,client_addr;// 建立socket中使用
@@ -89,7 +97,7 @@ fd_set master_list, watch_list;  //master_list存储 fd list   watch_list为 mst
 //路由ID IP对应表
 struct in_addr routerIP[MAX_CLIENT];    //routerIP [n] 是 ID 为 n 的路由IP  || INIT初始化后不变
 //路由 ID 端口对应表
-struct in_addr routerPort[MAX_CLIENT][2];  //[n][] index n 是相应的 routerID; [n][0] 是 DV更新UDP端口; [n][1] 是 文件传输连接TCP端口; || INIT初始化后不变
+unsigned short int routerPort[MAX_CLIENT][2];  //[n][] index n 是相应的 routerID; [n][0] 是 DV更新UDP端口; [n][1] 是 文件传输连接TCP端口; || INIT初始化后不变
 //路由表
 unsigned short int routing_table[MAX_CLIENT][2]; //[n][] index n 是相应的 routerID; [n][0] 是 nexthop; [n][1] 是 cost; || INIT初始化，DV过程改变
 //拓扑图
@@ -218,11 +226,7 @@ int main(int argc, char **argv)
                         socket_accept(cmd_socket,&cmd_fd);
                         printf("controller reconnected %d!\n", fd_index);
                         FD_SET(cmd_fd, &master_list);
-                        struct sockaddr_in addr;
-                        socklen_t addr_size;
-                        addr_size = sizeof(struct sockaddr_in);
-                        getpeername(fd_index, (struct sockaddr *)&addr, &addr_size);
-                        controllerIP = addr.sin_addr;
+                        controllerIP = getIP_in_addr(cmd_fd);
                         printf("%s\n", inet_ntoa(controllerIP));
                     }
                     else if(fd_index==cmd_fd)   //controller 命令
@@ -244,12 +248,13 @@ int main(int argc, char **argv)
                             struct controlpk_head *cpk_head = (struct controlpk_head *)malloc(sizeof(char) * MOSTHEAD_SIZE);
                             memset(cpk_head, '\0', MOSTHEAD_SIZE);
                             memcpy(cpk_head, buffer, MOSTHEAD_SIZE);
-                            int control_payload_len = cpk_head->payload_len;
+                            int control_payload_len = ntohs(cpk_head->payload_len);
                             int control_code = cpk_head->control_code;
                             // check if need recieve control payload
                             printf("control payload len: %d", control_payload_len);
+                            char *control_payload_buffer;
                             if(control_payload_len != 0) {
-                                char *control_payload_buffer = (char *)malloc(sizeof(char) * control_payload_len);
+                                control_payload_buffer = (char *)malloc(sizeof(char) * control_payload_len);
                                 memset(control_payload_buffer, '\0', control_payload_len);
                                 recv(fd_index, control_payload_buffer, control_payload_len, 0);
                             }
@@ -258,7 +263,7 @@ int main(int argc, char **argv)
                             memset(crp_head, '\0', MOSTHEAD_SIZE);
                             crp_head->control_code = 0;
                             crp_head->controller_ip = controllerIP;
-                            crp_head->payload_len = 128;
+                            crp_head->payload_len = 0;
                             crp_head->response_code = 0;
                             switch(control_code) {
                                 // AUTHOR [Control Code: 0x00]
@@ -283,16 +288,62 @@ int main(int argc, char **argv)
                                 // INIT [Control Code: 0x01]
                                 case 1:
                                 {
+                                    printf("\n*****INIT******\n");
+                                    memcpy(&number_of_routers, control_payload_buffer, 2);
+                                    memcpy(&periodic_interval, control_payload_buffer+2, 
+                                    2);
+                                    number_of_routers = ntohs(number_of_routers);
+                                    periodic_interval = ntohs(periodic_interval);
+                                    /* cost_list[i][0] -> router_id 
+                                    *  cost_list[i][1] -> cost of such link
+                                    * */
+                                    unsigned short int cost_list[MAX_CLIENT][2];
+                                    for(int i=0; i < number_of_routers; i++) {
+                                        int _offset = 4 + (12 * i);
+                                        unsigned short int router_id, port_1, port_2, cost;
+                                        struct in_addr router_ip;
+                                        memcpy(&router_id, control_payload_buffer + _offset, 2);
+                                        router_id = ntohs(router_id);
+                                        memcpy(&port_1, control_payload_buffer+_offset+2, 2);
+                                        port_1 = ntohs(port_1);
+                                        memcpy(&port_2, control_payload_buffer+_offset+4, 2);
+                                        port_2 = ntohs(port_2);
+                                        memcpy(&cost, control_payload_buffer+_offset+6, 2);
+                                        cost = ntohs(cost);
+                                        memcpy(&router_ip, control_payload_buffer+_offset+8, 4);
+                                        printf("ID: %d, PORT1: %d, PORT2: %d IP:%s COST:%d\n", router_id, port_1, port_2, inet_ntoa(router_ip), cost);
+                                        in_addr a;
+                                        routerIP[router_id] = router_ip;
+                                        routerPort[router_id][0] = port_1;
+                                        routerPort[router_id][1] = port_2;
+                                        cost_list[i][0] = router_id;
+                                        cost_list[i][1] = cost;
+                                        if (cost == 0) {
+                                            host_ID = router_id;
+                                            printf("MY ID IS %d\n", host_ID);
+                                        }
+                                    }
+                                    // Update the DV routing table
+                                    for(int i=0; i < number_of_routers; i++) {
+                                        /*
+                                        * [n][] index n 是相应的 routerID; 
+                                        * [n][0] 是 nexthop; [n][1] 是 cost; 
+                                        * INIT初始化，DV过程改变 
+                                        */
+                                        routing_table[host_ID][0] = cost_list[i][0];
+                                        routing_table[host_ID][1] = cost_list[i][1];
+                                    }
+                                    // Send response (ONLY HEADER)
+                                    char *response_buffer = (char *)malloc(sizeof(char) * MOSTHEAD_SIZE);
+                                    memset(response_buffer, '\0', MOSTHEAD_SIZE);
+                                    crp_head->control_code = 1;
+                                    memcpy(response_buffer, crp_head, MOSTHEAD_SIZE);
+                                    send(fd_index, response_buffer, MOSTHEAD_SIZE, 0);
                                     break;
                                 }
 
                                 
                             }
-                            if(cpk_head->control_code == 1) {
-                                
-
-                            }
-                            
                             
 
                         }
@@ -359,6 +410,17 @@ string getIP(int sockfd)
     char * extern_ip = inet_ntoa(sa.sin_addr);
     std::cout<<extern_ip<<std::endl;
     return string(extern_ip);
+}
+
+in_addr getIP_in_addr(int sockfd)
+{
+
+    struct sockaddr_in sa;
+    unsigned int len = sizeof(sa);
+    getpeername(sockfd, (struct sockaddr *)&sa, &len);
+
+
+    return (sa.sin_addr);
 }
 
 
