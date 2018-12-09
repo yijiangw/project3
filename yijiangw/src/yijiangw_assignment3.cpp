@@ -453,6 +453,14 @@ int main(int argc, char **argv)
                                 case 4:
                                 {
                                     printf("\n*****CRASH******\n");
+                                    char *response_buffer = (char *)malloc(sizeof(char) * MOSTHEAD_SIZE);
+                                    memset(response_buffer, '\0', MOSTHEAD_SIZE);
+                                    crp_head->control_code = 4;
+                                    memcpy(response_buffer, crp_head, MOSTHEAD_SIZE);
+                                    send(fd_index, response_buffer, MOSTHEAD_SIZE, 0);
+                                    printf("\nSENT RESPONSE\n");
+                                    printf("Bye!\n");
+                                    exit(0);
                                     break;
                                 }
 
