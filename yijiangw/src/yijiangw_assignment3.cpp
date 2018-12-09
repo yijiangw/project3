@@ -406,9 +406,9 @@ int main(int argc, char **argv)
                                     short padding = htons(0);
                                     for(int i=1; i<=number_of_routers; i++) {
                                         int _offset = (i - 1) * 8 + MOSTHEAD_SIZE;
-                                        short i_id = htons(i);
-                                        short i_next_hop = htons(routing_table[i][0]);
-                                        short i_cost = htons(routing_table[i][1]);
+                                        unsigned short int i_id = htons(i);
+                                        unsigned short int i_next_hop = htons(routing_table[i][0]);
+                                        unsigned short int i_cost = htons(routing_table[i][1]);
                                         memcpy(response_buffer+_offset, &i_id, 2);
                                         memcpy(response_buffer+_offset+2, &padding, 2);
                                         memcpy(response_buffer+_offset+4, &i_next_hop, 2);
@@ -416,6 +416,43 @@ int main(int argc, char **argv)
                                     }
                                     send(fd_index, response_buffer, response_buffer_len, 0);
                                     printf("\nSENT RESPONSE\n");
+                                    break;
+                                }
+                                case 3:
+                                {
+                                    printf("\n*****UPDATE******\n");
+                                    printf("-----BEFORE UPDATE-----\n");
+                                    print_routing_table(number_of_routers);
+                                    print_topology(number_of_routers);
+                                    unsigned short int r_id, r_new_cost;
+                                    memcpy(&r_id, control_payload_buffer, 2);
+                                    memcpy(&r_new_cost, control_payload_buffer+2, 2);
+                                    r_id = ntohs(r_id);
+                                    r_new_cost = ntohs(r_new_cost);
+                                    printf("[RECEIVED] -> %d\t COST: %d\n", r_id, r_new_cost);
+                                    topology[host_ID][r_id] = r_new_cost;
+                                    /* If new cost less than the record in routing_table,
+                                    ** update routing_table[host_ID][0] -> this router
+                                    **        routing_table[host_ID][1] -> this new cost
+                                    */
+                                   if(routing_table[r_id][1] > r_new_cost) {
+                                       routing_table[r_id][0] = r_id;
+                                       routing_table[r_id][1] = r_new_cost;
+                                   }
+                                    printf("-----AFTER UPDATE-----\n");
+                                    print_routing_table(number_of_routers);
+                                    print_topology(number_of_routers);
+                                    char *response_buffer = (char *)malloc(sizeof(char) * MOSTHEAD_SIZE);
+                                    memset(response_buffer, '\0', MOSTHEAD_SIZE);
+                                    crp_head->control_code = 3;
+                                    memcpy(response_buffer, crp_head, MOSTHEAD_SIZE);
+                                    send(fd_index, response_buffer, MOSTHEAD_SIZE, 0);
+                                    printf("\nSENT RESPONSE\n");
+                                    break;
+                                }
+                                case 4:
+                                {
+                                    printf("\n*****CRASH******\n");
                                     break;
                                 }
 
