@@ -94,6 +94,7 @@ unsigned short int host_ID;
 *   last_start records the last start time of timer
 */
 time_t last_start;
+int DV_buffer_size;
 
 void recompute_routing_table_from_topology(int router_id, int max_routing_id);
 void print_topology(int max_id);
@@ -209,12 +210,37 @@ int main(int argc, char **argv)
     while(1)
     {   
         if(periodic_interval > 0 && last_start >0 && (time(0) - last_start) >= (periodic_interval)) {
-            printf("TIMEOUT %d\n", cnt);
+            printf("TIMEOUT %d -> %d\n", cnt, last_start);
             cnt++;
             last_start = time(0);
+            // update lost_time from DV_in last period AND reset DV_in last period
+            for(int i=1; i <= number_of_routers; i++) {
+                if(!DV_in_last_period[i]) {
+                    lost_time[i]++;
+                    if(i != host_ID && lost_time[i] == 4) {
+                        topology[host_ID][i] = INF;
+                        printf("TOPOLOGY FROM %d TO %d: %d\n", host_ID, i, topology[host_ID][i]);
+                        // pdate routing_table if it serves as a next_hop
+                        for(int j=1; j <= number_of_routers; j++) {
+                            if(routing_table[j][0] == i) {
+                                routing_table[j][1] = INF;
+                            }
+                            
+                        }
+                        printf("[LOST]ROUTER ID: %d\n", i);
+                    }
+                } else {
+                    lost_time[i] = 0;
+                }
+                DV_in_last_period[i] = false;
+            }
+            printf("---LOST TIME STATUS UPDATED---\n");
+            for(int i=1; i <= number_of_routers; i++) {
+                printf("ID: %d \tLOST TIME: %d\n", i, lost_time[i]);
+            }
             // make UDP DV packet
-            char *DV_buffer =  (char *)malloc(BUFFER_SIZE);
-            bzero(DV_buffer, BUFFER_SIZE);
+            char *DV_buffer =  (char *)malloc(DV_buffer_size);
+            bzero(DV_buffer, DV_buffer_size);
             unsigned short int number_of_update_fields = htons(number_of_routers);
             unsigned short int source_router_port = htons(DV_port);
             memcpy(DV_buffer, &number_of_update_fields, 2);
@@ -237,12 +263,12 @@ int main(int argc, char **argv)
             }
             // send to all routers excluded itself
             for(int i=1; i <= number_of_routers; i++) {
-                if(i != host_ID) {
+                if(i != host_ID && lost_time[i] <= 3) {
                     struct sockaddr_in addr_to;
                     addr_to.sin_family=AF_INET;
                     addr_to.sin_port=htons(routerPort[i][0]);
                     addr_to.sin_addr.s_addr = routerIP[i].s_addr;
-                    int sentlen =sendto(DV_fd,DV_buffer,BUFFER_SIZE,0,(struct sockaddr*)&addr_to,sizeof(addr_to));
+                    int sentlen =sendto(DV_fd,DV_buffer,DV_buffer_size,0,(struct sockaddr*)&addr_to,sizeof(addr_to));
                     printf("[ROUTING UPDATE <TO>]ID: %d SENT: %d bytes\n", i, sentlen);
                 }
             }
@@ -429,6 +455,8 @@ int main(int argc, char **argv)
                                     printf("\nSENT RESPONSE\n");
                                     last_start = time(0);
                                     printf("\nTIMER STARTED\n");
+                                    DV_buffer_size = number_of_routers * 12 + 8;
+                                    printf("\nDV BUFFER SIZE SET TO BE %d\n", DV_buffer_size);
                                     break;
                                 }
                                 case 2:
@@ -515,9 +543,9 @@ int main(int argc, char **argv)
                     {
                         struct sockaddr_in remaddr;     /* remote address */
                         socklen_t addrlen = sizeof(remaddr);   /* length of addresses */
-                        char *DV_buffer =  (char *)malloc(BUFFER_SIZE);
-                        bzero(DV_buffer, BUFFER_SIZE);
-                        int recvlen = recvfrom(fd_index, DV_buffer, BUFFER_SIZE, 0, (struct sockaddr *)&remaddr, &addrlen);
+                        char *DV_buffer =  (char *)malloc(DV_buffer_size);
+                        bzero(DV_buffer, DV_buffer_size);
+                        int recvlen = recvfrom(fd_index, DV_buffer, DV_buffer_size, 0, (struct sockaddr *)&remaddr, &addrlen);
                         // find remote router ID
                         int source_id;
                         for(int i=1; i<=number_of_routers; i++) {
@@ -526,6 +554,8 @@ int main(int argc, char **argv)
                                 break;
                             }
                         }
+                        // update DV_in_last_period
+                        DV_in_last_period[source_id] = true;
                         printf("\n[ROUTING UPDATE <FROM>]ID: %d GOT: %d bytes\n",source_id, recvlen);
                         unsigned short int number_of_update_fields, source_router_port;
                         struct in_addr source_IP;
