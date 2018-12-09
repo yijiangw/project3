@@ -361,6 +361,12 @@ int main(int argc, char **argv)
                                     }
                                     printf("\nINITIALIZED ROUTING TABLE\n");
                                     print_routing_table(number_of_routers);
+
+                                    // Init linked list to be false
+                                    for(int i=1; i <= number_of_routers; i++) {
+                                        linked[i] = false;
+                                    }
+                                    printf("\nINITIALIZED LINKED with all false\n");
                                     /* 
                                     *   Update the topology 
                                     *   Cost from i to j
