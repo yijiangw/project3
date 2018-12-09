@@ -41,6 +41,7 @@
 #include <string>
 #include <iostream>
 #include <list>
+#include <ctime>
 //最大用户数
 #define MAX_CLIENT 20
 //connect 用户缓存数目
@@ -62,7 +63,7 @@
 
 #define AUTHOR "I, yijiangw, have read and understood the course academic integrity policy."
 
-#define INF -1
+#define INF 65535
 
 using namespace std;
 
@@ -88,7 +89,15 @@ struct timeval tv; //select 间隔时间
 uint16_t number_of_routers;
 uint16_t periodic_interval;
 unsigned short int host_ID;
+/*
+*   time_t is a long type(32bit)
+*   last_start records the last start time of timer
+*/
+time_t last_start = time(0);
 
+void recompute_routing_table_from_topology(int router_id, int max_routing_id);
+void print_topology(int max_id);
+void print_routing_table(int max_id);
 //struct sockaddr_in cmd_addr, data_addr, client_addr; //存地址信息用的 (取消)
 //
 struct sockaddr_in  server_addr,client_addr;// 建立socket中使用
@@ -290,10 +299,11 @@ int main(int argc, char **argv)
                                 {
                                     printf("\n*****INIT******\n");
                                     memcpy(&number_of_routers, control_payload_buffer, 2);
+                                    number_of_routers = ntohs(number_of_routers);
                                     memcpy(&periodic_interval, control_payload_buffer+2, 
                                     2);
-                                    number_of_routers = ntohs(number_of_routers);
                                     periodic_interval = ntohs(periodic_interval);
+                                    printf("ROUTER NUM: %d ITERVAL: %d\n", number_of_routers, periodic_interval);
                                     /* cost_list[i][0] -> router_id 
                                     *  cost_list[i][1] -> cost of such link
                                     * */
@@ -311,7 +321,7 @@ int main(int argc, char **argv)
                                         memcpy(&cost, control_payload_buffer+_offset+6, 2);
                                         cost = ntohs(cost);
                                         memcpy(&router_ip, control_payload_buffer+_offset+8, 4);
-                                        printf("ID: %d, PORT1: %d, PORT2: %d IP:%s COST:%d\n", router_id, port_1, port_2, inet_ntoa(router_ip), cost);
+                                        printf("ID: %d, ROUTER PORT<UDP>: %d, DATA PORT<TCP>: %d IP:%s COST:%d\n", router_id, port_1, port_2, inet_ntoa(router_ip), cost);
                                         in_addr a;
                                         routerIP[router_id] = router_ip;
                                         routerPort[router_id][0] = port_1;
@@ -320,7 +330,20 @@ int main(int argc, char **argv)
                                         cost_list[i][1] = cost;
                                         if (cost == 0) {
                                             host_ID = router_id;
-                                            printf("MY ID IS %d\n", host_ID);
+                                            DV_port = port_1;
+                                            data_port = port_2;
+                                            printf("-------------------------------------------------\n");
+                                            printf("[SET]\tMY ID IS %d UDP DV PORT: %d TCP DATA PORT: %d\n", host_ID, DV_port, data_port);
+                                            if(socket_init(&DV_socket, DV_port, UDP_TYPE)){
+                                                FD_SET(DV_socket, &master_list);
+                                                printf("STARTED LISTENING DV/ROUTER PORT <UDP>\n");
+                                            }
+                                            if(socket_init(&data_socket, data_port, TCP_TYPE)){
+                                                FD_SET(data_socket, &master_list);
+                                                printf("STARTED LISTENING DATA PORT <TCP>\n");
+                                            }
+                                            printf("-------------------------------------------------\n");
+
                                         }
                                     }
                                     // Update the DV routing table
@@ -330,15 +353,35 @@ int main(int argc, char **argv)
                                         * [n][0] 是 nexthop; [n][1] 是 cost; 
                                         * INIT初始化，DV过程改变 
                                         */
-                                        routing_table[host_ID][0] = cost_list[i][0];
-                                        routing_table[host_ID][1] = cost_list[i][1];
+                                        routing_table[cost_list[i][0]][0] = cost_list[i][0];
+                                        routing_table[cost_list[i][0]][1] = cost_list[i][1];
                                     }
+                                    printf("\nINITIALIZED ROUTING TABLE\n");
+                                    print_routing_table(number_of_routers);
+                                    /* 
+                                    *   Update the topology 
+                                    *   Cost from i to j
+                                    **/ 
+                                    for(int i=1; i <= number_of_routers; i++) {
+                                        for(int j=1; j<= number_of_routers; j++) {
+                                            if(i == host_ID) {
+                                                topology[i][j] = routing_table[j][1];
+                                            } else {
+                                                topology[i][j] = INF;
+                                            }
+                                        }
+                                    }
+                                    printf("\nINITIALIZED TOPOLOGY\n");
+                                    print_topology(number_of_routers);
                                     // Send response (ONLY HEADER)
                                     char *response_buffer = (char *)malloc(sizeof(char) * MOSTHEAD_SIZE);
                                     memset(response_buffer, '\0', MOSTHEAD_SIZE);
                                     crp_head->control_code = 1;
                                     memcpy(response_buffer, crp_head, MOSTHEAD_SIZE);
                                     send(fd_index, response_buffer, MOSTHEAD_SIZE, 0);
+                                    printf("\nSENT RESPONSE\n");
+                                    last_start = time(0);
+                                    printf("\nTIMER STARTED\n");
                                     break;
                                 }
 
@@ -498,4 +541,39 @@ int socket_accept(int targetsocket,int *new_fd)
     *new_fd = fdaccept;
     return 1;
 
+}
+
+void recompute_routing_table_from_topology(int router_id, int max_routing_id) {
+    for(int i=1; i<=max_routing_id; i++) {
+        if(i != router_id) {
+            int orginal_cost = topology[router_id][i]; // Original Cost from router_id to router i
+            for(int j=1; j<=max_routing_id; j++){
+                if(j != i && j != router_id) {
+                    int new_cost = topology[router_id][j] + topology[j][i];
+                    if(new_cost < orginal_cost) {
+                        topology[router_id][i] = new_cost;
+                        //need to update routing_table_here
+                        routing_table[i][0] = j;
+                        routing_table[i][1] = new_cost;
+                    }
+                }
+            }
+            
+        }
+    }
+}
+
+void print_topology(int max_id) {
+    for(int i=1; i<=max_id; i++) {
+        for(int j=1; j<=max_id; j++) {
+            printf("%d\t", topology[i][j]);
+        }
+        printf("\n");
+    }
+}
+
+void print_routing_table(int max_id) {
+    for(int i=1; i<=max_id; i++) {
+        printf("dest_id: %d \t next hop: %d \t cost: %d \n", i, routing_table[i][0], routing_table[i][1]);
+    }
 }
