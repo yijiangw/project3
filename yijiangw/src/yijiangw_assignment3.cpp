@@ -258,9 +258,12 @@ int main(int argc, char **argv)
                             memset(cpk_head, '\0', MOSTHEAD_SIZE);
                             memcpy(cpk_head, buffer, MOSTHEAD_SIZE);
                             int control_payload_len = ntohs(cpk_head->payload_len);
+                            int control_response_time = cpk_head->response_time;
                             int control_code = cpk_head->control_code;
+                            in_addr control_dest_ip = cpk_head->destination;
                             // check if need recieve control payload
-                            printf("control payload len: %d", control_payload_len);
+                            printf("\nCONTROL HEADER\n");
+                            printf("DEST IP: %s\tCONTROL CODE: %d\tRESPONSE TIME: %d\t PAYLOAD LEN:%d\n",inet_ntoa(control_dest_ip), control_code,  control_response_time, control_payload_len);
                             char *control_payload_buffer;
                             if(control_payload_len != 0) {
                                 control_payload_buffer = (char *)malloc(sizeof(char) * control_payload_len);
@@ -272,13 +275,13 @@ int main(int argc, char **argv)
                             memset(crp_head, '\0', MOSTHEAD_SIZE);
                             crp_head->control_code = 0;
                             crp_head->controller_ip = controllerIP;
-                            crp_head->payload_len = 0;
+                            crp_head->payload_len = htons(0);
                             crp_head->response_code = 0;
                             switch(control_code) {
                                 // AUTHOR [Control Code: 0x00]
                                 case 0:
                                 {
-
+                                    printf("\n*****AUTHOR******\n");
                                     char *author_str = (char *)malloc(sizeof(AUTHOR));
                                     strcpy(author_str, AUTHOR);
                                     int author_payload_len = strlen(author_str);
@@ -382,6 +385,31 @@ int main(int argc, char **argv)
                                     printf("\nSENT RESPONSE\n");
                                     last_start = time(0);
                                     printf("\nTIMER STARTED\n");
+                                    break;
+                                }
+                                case 2:
+                                {
+                                    printf("\n*****ROUTING-TABLE******\n");
+                                    int response_payload_len = number_of_routers * 8;
+                                    int response_buffer_len = MOSTHEAD_SIZE + response_payload_len;
+                                    char *response_buffer = (char *)malloc(sizeof(char) * response_buffer_len);
+                                    memset(response_buffer, '\0', response_buffer_len);
+                                    crp_head->control_code = 2;
+                                    crp_head->payload_len = htons(response_payload_len);
+                                    memcpy(response_buffer, crp_head, MOSTHEAD_SIZE);
+                                    short padding = htons(0);
+                                    for(int i=1; i<=number_of_routers; i++) {
+                                        int _offset = (i - 1) * 8 + MOSTHEAD_SIZE;
+                                        short i_id = htons(i);
+                                        short i_next_hop = htons(routing_table[i][0]);
+                                        short i_cost = htons(routing_table[i][1]);
+                                        memcpy(response_buffer+_offset, &i_id, 2);
+                                        memcpy(response_buffer+_offset+2, &padding, 2);
+                                        memcpy(response_buffer+_offset+4, &i_next_hop, 2);
+                                        memcpy(response_buffer+_offset+6, &i_cost, 2);
+                                    }
+                                    send(fd_index, response_buffer, response_buffer_len, 0);
+                                    printf("\nSENT RESPONSE\n");
                                     break;
                                 }
 
