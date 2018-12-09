@@ -93,7 +93,7 @@ unsigned short int host_ID;
 *   time_t is a long type(32bit)
 *   last_start records the last start time of timer
 */
-time_t last_start = time(0);
+time_t last_start;
 
 void recompute_routing_table_from_topology(int router_id, int max_routing_id);
 void print_topology(int max_id);
@@ -112,7 +112,8 @@ unsigned short int routing_table[MAX_CLIENT][2]; //[n][] index n 是相应的 ro
 //拓扑图
 unsigned short int topology [MAX_CLIENT][MAX_CLIENT]; // [x][y]表示x和y之间的cost， 初始化为-1 0xFFFF || INIT初始化，UPDATE命令改变
 //是否相邻路由
-bool linked[MAX_CLIENT]; //linked [n] 是 true 的话 ID 为 n 的路由IP 直接与本机相连
+int lost_time[MAX_CLIENT]; //对网络中的路由器记录连续没有收到DV包的周期数，当为3时，证明连续3个周期没有收到DV包，将此router视为离线 || INIT初始化，TIMEOUT更新
+bool DV_in_last_period[MAX_CLIENT]; //如果在上个周期中收到DV包则true，TIMEOUT时更新lost_time，并将自己重置为全false供下一个周期使用 || INIT初始化，TIMEOUT&DV阶段更新
 
 //大多数数据包的基本数据结构  controller命令交互和DV更新
 struct packet_abstract
@@ -203,24 +204,32 @@ int main(int argc, char **argv)
     FD_SET(cmd_socket, &master_list);
 
     max_fd = cmd_socket;
-    //wait be connected by controller
-    // memcpy(&watch_list, &master_list, sizeof(master_list));
-    // selret = select(max_fd + 1, &watch_list, NULL, NULL, NULL);
-    // if (selret < 0)
-    //     perror("select failed.");
-    // else if(selret > 0&&!socket_accept(cmd_socket,&cmd_fd))
-    // {
-    //     perror("cmd connect accept failed.");
-    //     return 0;
-    // }
-    // printf("controller connected!\n");
-    // FD_SET(cmd_fd, &master_list);
-
-    //开始接受数据
+    
+    int cnt = 0;
     while(1)
-    {
+    {   
+        if(periodic_interval > 0 && last_start >0 && (time(0) - last_start) >= (periodic_interval)) {
+            printf("TIMEOUT %d\n", cnt);
+            cnt++;
+            last_start = time(0);
+            for(int i=1; i <= number_of_routers; i++) {
+                if(i != host_ID) {
+                    char *DV_buffer =  (char *)malloc(BUFFER_SIZE);
+                    bzero(DV_buffer, BUFFER_SIZE);
+                    strcpy(DV_buffer, "Hi ROUTING UPDATE");
+                    struct sockaddr_in addr_to;
+                    addr_to.sin_family=AF_INET;
+                    addr_to.sin_port=htons(routerPort[i][0]);
+                    addr_to.sin_addr.s_addr = routerIP[i].s_addr;
+                    int sentlen =sendto(DV_fd,DV_buffer,BUFFER_SIZE,0,(struct sockaddr*)&addr_to,sizeof(addr_to));
+                    printf("[ROUTING UPDATE <TO>]ID: %d SENT: %d bytes\n", i, sentlen);
+                }
+            }
+        }
         memcpy(&watch_list, &master_list, sizeof(master_list));
         settv = tv;
+
+        
         selret = select(max_fd + 1, &watch_list, NULL, NULL, &settv);  //利用 远小于DV更新间隔的时间段tv 作为select 时间段
         if(selret > 0) //有 fd 活动
         {
@@ -339,10 +348,16 @@ int main(int argc, char **argv)
                                             printf("[SET]\tMY ID IS %d UDP DV PORT: %d TCP DATA PORT: %d\n", host_ID, DV_port, data_port);
                                             if(socket_init(&DV_socket, DV_port, UDP_TYPE)){
                                                 FD_SET(DV_socket, &master_list);
+                                                if(DV_socket > max_fd) {
+                                                    max_fd = DV_socket;
+                                                }
                                                 printf("STARTED LISTENING DV/ROUTER PORT <UDP>\n");
                                             }
                                             if(socket_init(&data_socket, data_port, TCP_TYPE)){
                                                 FD_SET(data_socket, &master_list);
+                                                if(data_socket > max_fd) {
+                                                    max_fd = data_socket;
+                                                }
                                                 printf("STARTED LISTENING DATA PORT <TCP>\n");
                                             }
                                             printf("-------------------------------------------------\n");
@@ -362,9 +377,10 @@ int main(int argc, char **argv)
                                     printf("\nINITIALIZED ROUTING TABLE\n");
                                     print_routing_table(number_of_routers);
 
-                                    // Init linked list to be false
+                                    // Init linked & DV
                                     for(int i=1; i <= number_of_routers; i++) {
-                                        linked[i] = false;
+                                        lost_time[i] = 0;
+                                        DV_in_last_period[i] = false;
                                     }
                                     printf("\nINITIALIZED LINKED with all false\n");
                                     /* 
@@ -475,6 +491,20 @@ int main(int argc, char **argv)
                     }
                     else if(fd_index==DV_socket)  // 接收 DV
                     {
+                        struct sockaddr_in remaddr;     /* remote address */
+                        socklen_t addrlen = sizeof(remaddr);   /* length of addresses */
+                        char *DV_buffer =  (char *)malloc(BUFFER_SIZE);
+                        bzero(DV_buffer, BUFFER_SIZE);
+                        int recvlen = recvfrom(fd_index, DV_buffer, BUFFER_SIZE, 0, (struct sockaddr *)&remaddr, &addrlen);
+                        // find remote router ID
+                        int remID;
+                        for(int i=1; i<=number_of_routers; i++) {
+                            if(routerIP[i].s_addr == remaddr.sin_addr.s_addr) {
+                                remID = i;
+                                break;
+                            }
+                        }
+                        printf("[ROUTING UPDATE <FROM>]ID: %d GOT: %d bytes\n",remID, recvlen);
                     }
                     else  // 数据 tcp 接受文件数据包
                     {
@@ -494,29 +524,6 @@ int main(int argc, char **argv)
         }
 
     }
-
-    //创建socket TCP SOCK_STREAM   UDP SOCK_DGRAM
-//    cmd_socket = socket(AF_INET, SOCK_STREAM, 0);
-//    data_socket = socket(AF_INET, SOCK_STREAM, 0);
-//    DV_socket = socket(AF_INET, SOCK_DGRAM, 0);
-//
-//
-//
-//    bzero(&server_addr, sizeof(server_addr));
-//
-//    server_addr.sin_family = AF_INET;  //ipv4
-//    server_addr.sin_addr.s_addr = htonl(INADDR_ANY); // host to network long
-//    server_addr.sin_port = htons(cmd_port);    //host to network short
-//
-//
-//	/* Bind */
-//    if (bind(cmd_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
-//        perror("Bind failed");
-//
-//    /* Listen */
-//    if (listen(cmd_socket, BACKLOG) < 0)
-//        perror("Unable to listen on port");
-
 
     return 0;
 }
