@@ -78,7 +78,7 @@ int socket_init(int *targetsocket,int port,int type);
 int socket_accept(int targetsocket,int *new_fd);
 
 struct in_addr hostIP,controllerIP; //本机IP, controller IP   in_addr  就是 uint32_t   that's a 32-bit int (4 bytes)
-int cmd_port,data_port,DV_port;  //存储本机的三个端口
+unsigned short int cmd_port,data_port,DV_port;  //存储本机的三个端口
 int cmd_socket,data_socket,DV_socket; //cmd 监听listen连接socket  数据监听连接socket  距离向量UDP接受socket
 int cmd_fd,data_fd[MAX_CLIENT]; //命令接受 fd  数据文件接受fd  距离向量UDP fd 和 DV_socket 一样
 int max_fd, fd_index;  // 最大fd  当前fd 用于循环检查
@@ -212,11 +212,32 @@ int main(int argc, char **argv)
             printf("TIMEOUT %d\n", cnt);
             cnt++;
             last_start = time(0);
+            // make UDP DV packet
+            char *DV_buffer =  (char *)malloc(BUFFER_SIZE);
+            bzero(DV_buffer, BUFFER_SIZE);
+            unsigned short int number_of_update_fields = htons(number_of_routers);
+            unsigned short int source_router_port = htons(DV_port);
+            memcpy(DV_buffer, &number_of_update_fields, 2);
+            memcpy(DV_buffer+2, &source_router_port, 2);
+            memcpy(DV_buffer+4, &hostIP, 4);
+            printf("SOURCE IP: %s\n", inet_ntoa(hostIP));
+            unsigned short int padding = htons(0);
+            for(int i=1; i <= number_of_routers; i++) {
+                int _offset = (i - 1) * 12 + 8;
+                unsigned short r_id, r_IP, r_port, r_cost;
+                r_id = htons(i);
+                r_IP = routerIP[i].s_addr;
+                r_port = htons(routerPort[i][0]);
+                r_cost = htons(routing_table[i][1]);
+                memcpy(DV_buffer+_offset, &r_IP, 4);
+                memcpy(DV_buffer+_offset+4, &r_port, 2);
+                memcpy(DV_buffer+_offset+6, &padding, 2);
+                memcpy(DV_buffer+_offset+8, &r_id, 2);
+                memcpy(DV_buffer+_offset+10, &r_cost, 2);
+            }
+            // send to all routers excluded itself
             for(int i=1; i <= number_of_routers; i++) {
                 if(i != host_ID) {
-                    char *DV_buffer =  (char *)malloc(BUFFER_SIZE);
-                    bzero(DV_buffer, BUFFER_SIZE);
-                    strcpy(DV_buffer, "Hi ROUTING UPDATE");
                     struct sockaddr_in addr_to;
                     addr_to.sin_family=AF_INET;
                     addr_to.sin_port=htons(routerPort[i][0]);
@@ -344,6 +365,7 @@ int main(int argc, char **argv)
                                             host_ID = router_id;
                                             DV_port = port_1;
                                             data_port = port_2;
+                                            hostIP = router_ip;
                                             printf("-------------------------------------------------\n");
                                             printf("[SET]\tMY ID IS %d UDP DV PORT: %d TCP DATA PORT: %d\n", host_ID, DV_port, data_port);
                                             if(socket_init(&DV_socket, DV_port, UDP_TYPE)){
@@ -497,14 +519,38 @@ int main(int argc, char **argv)
                         bzero(DV_buffer, BUFFER_SIZE);
                         int recvlen = recvfrom(fd_index, DV_buffer, BUFFER_SIZE, 0, (struct sockaddr *)&remaddr, &addrlen);
                         // find remote router ID
-                        int remID;
+                        int source_id;
                         for(int i=1; i<=number_of_routers; i++) {
                             if(routerIP[i].s_addr == remaddr.sin_addr.s_addr) {
-                                remID = i;
+                                source_id = i;
                                 break;
                             }
                         }
-                        printf("[ROUTING UPDATE <FROM>]ID: %d GOT: %d bytes\n",remID, recvlen);
+                        printf("\n[ROUTING UPDATE <FROM>]ID: %d GOT: %d bytes\n",source_id, recvlen);
+                        unsigned short int number_of_update_fields, source_router_port;
+                        struct in_addr source_IP;
+                        memcpy(&number_of_update_fields, DV_buffer, 2);
+                        memcpy(&source_router_port, DV_buffer+2, 2);
+                        memcpy(&source_IP, DV_buffer+4, 4);
+                        number_of_update_fields = ntohs(number_of_update_fields);
+                        source_router_port = ntohs(source_router_port);
+                        printf("FIELDS#: %d \tSOURCE PORT: %d \tSOURCE ID: %d \tSOURCE IP: %s\n", number_of_update_fields, source_router_port, source_id, inet_ntoa(source_IP));
+                        for(int i=0; i<number_of_update_fields; i++) {
+                            unsigned short int dest_id, dest_cost;
+                            int _offset = i*12 + 8;
+                            memcpy(&dest_id, DV_buffer+_offset+8, 2);
+                            memcpy(&dest_cost, DV_buffer+_offset+10, 2);
+                            dest_id = ntohs(dest_id);
+                            printf("DEST ID: %d\n", dest_id);
+                            dest_cost = ntohs(dest_cost);
+                            printf("DEST cost: %d\n", dest_cost);
+                            topology[source_id][dest_id] = dest_cost;
+                        }
+                        recompute_routing_table_from_topology(host_ID, number_of_routers);
+                        printf("---RECOMPUTED MATRIX---\n");
+                        print_routing_table(number_of_routers);
+                        print_topology(number_of_routers);
+                        printf("\n");
                     }
                     else  // 数据 tcp 接受文件数据包
                     {
