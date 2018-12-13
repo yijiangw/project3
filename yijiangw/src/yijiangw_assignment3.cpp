@@ -351,6 +351,7 @@ int main(int argc, char **argv)
                         if (recv(fd_index, buffer, MOSTHEAD_SIZE, 0) <= 0)// controller 断开
                         {
                             close(fd_index);
+                            cmd_fd = -1;
                             printf("controller terminated connection %d!\n", fd_index);
                             /* Remove from watched list */
                             FD_CLR(fd_index, &master_list);
@@ -417,9 +418,9 @@ int main(int argc, char **argv)
                                 *  cost_list[i][1] -> cost of such link
                                 * */
                                 unsigned short int cost_list[MAX_CLIENT][2];
-                                for(int i=0; i < number_of_routers; i++)
+                                for(int i=1; i <=number_of_routers; i++)
                                 {
-                                    int _offset = 4 + (12 * i);
+                                    int _offset = 4 + (12 * (i-1));
                                     unsigned short int router_id, port_1, port_2, cost;
                                     struct in_addr router_ip;
                                     memcpy(&router_id, control_payload_buffer + _offset, 2);
@@ -470,15 +471,15 @@ int main(int argc, char **argv)
                                     }
                                 }
                                 // Update the DV routing table
-                                for(int i=0; i < number_of_routers; i++)
+                                for(int i=1; i <=number_of_routers; i++)
                                 {
                                     /*
                                     * [n][] index n 是相应的 routerID;
                                     * [n][0] 是 nexthop; [n][1] 是 cost;
                                     * INIT初始化，DV过程改变
                                     */
-                                    routing_table[cost_list[i][0]][0] = cost_list[i][0];
-                                    routing_table[cost_list[i][0]][1] = cost_list[i][1];
+                                    routing_table[i][0] = cost_list[i][0];
+                                    routing_table[i][1] = cost_list[i][1];
                                 }
                                 printf("\nINITIALIZED ROUTING TABLE\n");
                                 print_routing_table(number_of_routers);
@@ -537,8 +538,10 @@ int main(int argc, char **argv)
                                 for(int i=1; i<=number_of_routers; i++)
                                 {
                                     int _offset = (i - 1) * 8 + MOSTHEAD_SIZE;
-                                    unsigned short int i_id = htons(i);
-                                    unsigned short int i_next_hop = htons(routing_table[i][0]);
+                                    unsigned short int i_id = htons(trueID[i]);
+                                    unsigned short int i_next_hop = INF;
+                                    if (routing_table[i][1] != INF )
+                                    i_next_hop = htons(trueID[routing_table[i][0]]);
                                     unsigned short int i_cost = htons(routing_table[i][1]);
                                     memcpy(response_buffer+_offset, &i_id, 2);
                                     memcpy(response_buffer+_offset+2, &padding, 2);
@@ -610,10 +613,11 @@ int main(int argc, char **argv)
                                 memset(filename, '\0', 100);
                                 memcpy(&filename, control_payload_buffer+8, control_payload_len-8);
                                 bzero(filebuffer,sizeof(filebuffer));
-                                FILE *fp = fopen(filename, "r");
+                                FILE *fp = fopen("testfile1", "r");
                                 if(NULL == fp)
                                 {
                                     printf("File:%s Not Found\n", filename);
+
                                 }
                                 else
                                 {
@@ -638,6 +642,8 @@ int main(int argc, char **argv)
                                     {
                                         data_fd[id]=connect_to_host(inet_ntoa( routerIP[id]),routerPort[id][1]);
                                     }
+                                    cout<<inet_ntoa( routerIP[id])<<endl;
+
                                     char headbuffer[8];
                                     uint8_t newttl = TTL_set-1;
                                     translist[transcount][0]=trans_id_set;
