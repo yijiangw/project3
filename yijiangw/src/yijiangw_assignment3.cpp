@@ -261,7 +261,7 @@ int main(int argc, char **argv)
                     if(i != host_ID && lost_time[i] == 4)
                     {
                         DV_table[host_ID][i] = INF;
-                        topology[host_ID][i] = INF;
+                        // topology[host_ID][i] = INF;
                         printf("DV_table FROM %d TO %d: %d\n", host_ID, i, DV_table[host_ID][i]);
                         // pdate routing_table if it serves as a next_hop
                         for(int j=1; j <= number_of_routers; j++)
