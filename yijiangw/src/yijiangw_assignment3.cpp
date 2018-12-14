@@ -98,8 +98,8 @@ unsigned short int host_ID;
 time_t last_start;
 int DV_buffer_size;
 
-void recompute_routing_table_from_topology(int router_id, int max_routing_id);
-void print_topology(int max_id);
+void recompute_routing_tables(int router_id, int max_routing_id);
+void print_DV_table(int max_id);
 void print_routing_table(int max_id);
 //struct sockaddr_in cmd_addr, data_addr, client_addr; //存地址信息用的 (取消)
 //
@@ -120,6 +120,8 @@ unsigned short int topology [MAX_CLIENT][MAX_CLIENT]; // [x][y]表示x和y之间
 //是否相邻路由
 int lost_time[MAX_CLIENT]; //对网络中的路由器记录连续没有收到DV包的周期数，当为3时，证明连续3个周期没有收到DV包，将此router视为离线 || INIT初始化，TIMEOUT更新
 bool DV_in_last_period[MAX_CLIENT]; //如果在上个周期中收到DV包则true，TIMEOUT时更新lost_time，并将自己重置为全false供下一个周期使用 || INIT初始化，TIMEOUT&DV阶段更新
+unsigned short int DV_table[MAX_CLIENT][MAX_CLIENT];
+
 
 //大多数数据包的基本数据结构  controller命令交互和DV更新
 struct packet_abstract
@@ -258,8 +260,8 @@ int main(int argc, char **argv)
                     lost_time[i]++;
                     if(i != host_ID && lost_time[i] == 4)
                     {
-                        topology[host_ID][i] = INF;
-                        printf("TOPOLOGY FROM %d TO %d: %d\n", host_ID, i, topology[host_ID][i]);
+                        DV_table[host_ID][i] = INF;
+                        printf("DV_table FROM %d TO %d: %d\n", host_ID, i, DV_table[host_ID][i]);
                         // pdate routing_table if it serves as a next_hop
                         for(int j=1; j <= number_of_routers; j++)
                         {
@@ -509,8 +511,23 @@ int main(int argc, char **argv)
                                         }
                                     }
                                 }
+
+                                for(int i=1; i <= number_of_routers; i++)
+                                {
+                                    for(int j=1; j<= number_of_routers; j++)
+                                    {
+                                        if(i == host_ID)
+                                        {
+                                            DV_table[i][j] = routing_table[j][1];
+                                        }
+                                        else
+                                        {
+                                            DV_table[i][j] = INF;
+                                        }
+                                    }
+                                }
                                 printf("\nINITIALIZED TOPOLOGY\n");
-                                print_topology(number_of_routers);
+                                print_DV_table(number_of_routers);
                                 // Send response (ONLY HEADER)
                                 char *response_buffer = (char *)malloc(sizeof(char) * MOSTHEAD_SIZE);
                                 memset(response_buffer, '\0', MOSTHEAD_SIZE);
@@ -560,7 +577,7 @@ int main(int argc, char **argv)
                                 printf("\n*****UPDATE******\n");
                                 printf("-----BEFORE UPDATE-----\n");
                                 print_routing_table(number_of_routers);
-                                print_topology(number_of_routers);
+                                print_DV_table(number_of_routers);
                                 unsigned short int r_id, r_new_cost;
                                 memcpy(&r_id, control_payload_buffer, 2);
                                 memcpy(&r_new_cost, control_payload_buffer+2, 2);
@@ -575,21 +592,23 @@ int main(int argc, char **argv)
                                 r_new_cost = ntohs(r_new_cost);
                                 printf("[RECEIVED] -> %d(%d)\t COST: %d\n", r_id, true_id, r_new_cost);
                                 topology[host_ID][r_id] = r_new_cost;
-                                if(routing_table[r_id][0] == r_id) {
-                                    routing_table[r_id][1] = r_new_cost;
-                                }
+                                // topology[r_id][host_ID] = r_new_cost;
+                                // if(routing_table[r_id][0] == r_id) {
+                                //     routing_table[r_id][1] = r_new_cost;
+                                // }
                                 /* If new cost less than the record in routing_table,
                                 ** update routing_table[host_ID][0] -> this router
                                 **        routing_table[host_ID][1] -> this new cost
                                 */
-                                if(routing_table[r_id][1] > r_new_cost)
-                                {
-                                    routing_table[r_id][0] = r_id;
-                                    routing_table[r_id][1] = r_new_cost;
-                                }
+                                // if(routing_table[r_id][1] > r_new_cost)
+                                // {
+                                //     routing_table[r_id][0] = r_id;
+                                //     routing_table[r_id][1] = r_new_cost;
+                                // }
                                 printf("-----AFTER UPDATE-----\n");
+                                recompute_routing_tables(host_ID, number_of_routers);
                                 print_routing_table(number_of_routers);
-                                print_topology(number_of_routers);
+                                print_DV_table(number_of_routers);
                                 char *response_buffer = (char *)malloc(sizeof(char) * MOSTHEAD_SIZE);
                                 memset(response_buffer, '\0', MOSTHEAD_SIZE);
                                 crp_head->control_code = 3;
@@ -863,12 +882,12 @@ int main(int argc, char **argv)
                             printf("DEST ID: %d\n", dest_id);
                             dest_cost = ntohs(dest_cost);
                             printf("DEST cost: %d\n", dest_cost);
-                            topology[source_id][dest_id] = dest_cost;
+                            DV_table[source_id][dest_id] = dest_cost;
                         }
-                        recompute_routing_table_from_topology(host_ID, number_of_routers);
+                        recompute_routing_tables(host_ID, number_of_routers);
                         printf("---RECOMPUTED MATRIX---\n");
                         print_routing_table(number_of_routers);
-                        print_topology(number_of_routers);
+                        print_DV_table(number_of_routers);
                         printf("\n");
                     }
                     else  if (datafd_to_id(fd_index)) // 数据 tcp 接受文件数据包
@@ -1098,39 +1117,35 @@ int socket_accept(int targetsocket,int *new_fd)
 
 }
 
-void recompute_routing_table_from_topology(int router_id, int max_routing_id)
+void recompute_routing_tables(int router_id, int max_routing_id)
 {
-    for(int i=1; i<=max_routing_id; i++)
-    {
-        if(i != router_id)
-        {
-            int orginal_cost = topology[router_id][i]; // Original Cost from router_id to router i
-            for(int j=1; j<=max_routing_id; j++)
-            {
-                if(j != i && j != router_id)
-                {
-                    int new_cost = topology[router_id][j] + topology[j][i];
-                    if(new_cost < orginal_cost)
-                    {
-                        topology[router_id][i] = new_cost;
-                        //need to update routing_table_here
-                        routing_table[i][0] = j;
-                        routing_table[i][1] = new_cost;
-                    }
-                }
+    for(int i=1; i<=max_routing_id; i++) {
+        int candidate_next_hoc = INF; 
+        int candidate_new_cost = INF;
+        if (i != router_id) {
+            if (topology[router_id][i] != INF && topology[router_id][i] < candidate_new_cost) {
+                candidate_new_cost = topology[router_id][i];
+                candidate_next_hoc = i;
             }
-
+            for(int j=1; j<=max_routing_id; j++) {
+                    if (DV_table[router_id][j] != INF && DV_table[j][i] != INF && j != router_id && j != i&& DV_table[router_id][j] + DV_table[j][i] < candidate_new_cost) {
+                        candidate_new_cost = DV_table[router_id][j] + DV_table[j][i];
+                        candidate_next_hoc = j;
+                    }    
+            }
+            routing_table[i][0] = candidate_next_hoc;
+            routing_table[i][1] = candidate_new_cost;
         }
-    }
+    }    
 }
 
-void print_topology(int max_id)
+void print_DV_table(int max_id)
 {
     for(int i=1; i<=max_id; i++)
     {
         for(int j=1; j<=max_id; j++)
         {
-            printf("%d\t", topology[i][j]);
+            printf("%d\t", DV_table[i][j]);
         }
         printf("\n");
     }
