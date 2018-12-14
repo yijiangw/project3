@@ -29,6 +29,9 @@
  * @return 0 EXIT_SUCCESS
  */
 #pragma pack (1)
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <fstream>
 #include <stdio.h>
 #include <cstdlib>
@@ -613,9 +616,17 @@ int main(int argc, char **argv)
                                 memset(filename, '\0', 100);
                                 memcpy(&filename, control_payload_buffer+8, control_payload_len-8);
                                 bzero(filebuffer,sizeof(filebuffer));
-                                FILE *fp = fopen("testfile1", "r");
+//                                for (int x=0;x< 12;x++)
+//                                {
+//                                int s = (int)filename[x];
+//                                printf(" %d  ",s);
+//                                }
+
+                                FILE *fp = fopen(filename,"rb");
+
                                 if(NULL == fp)
                                 {
+                                    perror("fopen");
                                     printf("File:%s Not Found\n", filename);
 
                                 }
