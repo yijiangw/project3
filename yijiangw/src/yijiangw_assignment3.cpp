@@ -301,7 +301,7 @@ int main(int argc, char **argv)
             {
                 int _offset = (i - 1) * 12 + 8;
                 unsigned short r_id, r_IP, r_port, r_cost;
-                r_id = htons(i);
+                r_id = htons(trueID[i]);
                 r_IP = routerIP[i].s_addr;
                 r_port = htons(routerPort[i][0]);
                 r_cost = htons(routing_table[i][1]);
@@ -595,9 +595,9 @@ int main(int argc, char **argv)
                                 printf("[RECEIVED] -> %d(%d)\t COST: %d\n", r_id, true_id, r_new_cost);
                                 topology[host_ID][r_id] = r_new_cost;
                                 // topology[r_id][host_ID] = r_new_cost;
-                                if(routing_table[r_id][0] == r_id) {
-                                    routing_table[r_id][1] = r_new_cost;
-                                }
+                                // if(routing_table[r_id][0] == r_id) {
+                                //     routing_table[r_id][1] = r_new_cost;
+                                // }
                                 /* If new cost less than the record in routing_table,
                                 ** update routing_table[host_ID][0] -> this router
                                 **        routing_table[host_ID][1] -> this new cost
@@ -881,6 +881,11 @@ int main(int argc, char **argv)
                             memcpy(&dest_id, DV_buffer+_offset+8, 2);
                             memcpy(&dest_cost, DV_buffer+_offset+10, 2);
                             dest_id = ntohs(dest_id);
+                            for(int i=1; i<=number_of_routers; i++) {
+                                if(trueID[i] == dest_id) {
+                                    dest_id = i;
+                                }
+                            }
                             printf("DEST ID: %d\n", dest_id);
                             dest_cost = ntohs(dest_cost);
                             printf("DEST cost: %d\n", dest_cost);
