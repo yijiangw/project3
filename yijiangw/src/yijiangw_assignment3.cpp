@@ -269,7 +269,7 @@ int main(int argc, char **argv)
                             if(routing_table[j][0] == i)
                             {
                                 routing_table[j][1] = INF;
-                                routing_table[j][0] = INF;
+                                // routing_table[j][0] = INF;
                             }
 
                         }
