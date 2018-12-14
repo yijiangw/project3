@@ -540,8 +540,11 @@ int main(int argc, char **argv)
                                     int _offset = (i - 1) * 8 + MOSTHEAD_SIZE;
                                     unsigned short int i_id = htons(trueID[i]);
                                     unsigned short int i_next_hop = INF;
-                                    if (routing_table[i][1] != INF )
-                                    i_next_hop = htons(trueID[routing_table[i][0]]);
+                                    if (routing_table[i][1] != INF ) {
+                                        i_next_hop = htons(trueID[routing_table[i][0]]);
+                                    } else {
+                                        i_next_hop = htons(INF);
+                                    }
                                     unsigned short int i_cost = htons(routing_table[i][1]);
                                     memcpy(response_buffer+_offset, &i_id, 2);
                                     memcpy(response_buffer+_offset+2, &padding, 2);
@@ -561,10 +564,20 @@ int main(int argc, char **argv)
                                 unsigned short int r_id, r_new_cost;
                                 memcpy(&r_id, control_payload_buffer, 2);
                                 memcpy(&r_new_cost, control_payload_buffer+2, 2);
-                                r_id = ntohs(r_id);
+                                int true_id = ntohs(r_id);
+                                // get ID by trueID
+                                for(int i=0; i<MAX_CLIENT; i++) {
+                                    if(trueID[i] == true_id) {
+                                        r_id = i;
+                                        break;
+                                    }
+                                }
                                 r_new_cost = ntohs(r_new_cost);
-                                printf("[RECEIVED] -> %d\t COST: %d\n", r_id, r_new_cost);
+                                printf("[RECEIVED] -> %d(%d)\t COST: %d\n", r_id, true_id, r_new_cost);
                                 topology[host_ID][r_id] = r_new_cost;
+                                if(routing_table[r_id][0] == r_id) {
+                                    routing_table[r_id][1] = r_new_cost;
+                                }
                                 /* If new cost less than the record in routing_table,
                                 ** update routing_table[host_ID][0] -> this router
                                 **        routing_table[host_ID][1] -> this new cost
