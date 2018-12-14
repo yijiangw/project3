@@ -258,7 +258,7 @@ int main(int argc, char **argv)
                 if(!DV_in_last_period[i])
                 {
                     lost_time[i]++;
-                    if(i != host_ID && lost_time[i] == 4)
+                    if(i != host_ID && lost_time[i] == 3)
                     {
                         DV_table[host_ID][i] = INF;
                         printf("DV_table FROM %d TO %d: %d\n", host_ID, i, DV_table[host_ID][i]);
