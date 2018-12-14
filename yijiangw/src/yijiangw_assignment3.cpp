@@ -261,7 +261,7 @@ int main(int argc, char **argv)
                     if(i != host_ID && lost_time[i] == 4)
                     {
                         DV_table[host_ID][i] = INF;
-                        // topology[host_ID][i] = INF;
+                        topology[host_ID][i] = INF;
                         printf("DV_table FROM %d TO %d: %d\n", host_ID, i, DV_table[host_ID][i]);
                         // pdate routing_table if it serves as a next_hop
                         for(int j=1; j <= number_of_routers; j++)
@@ -269,7 +269,7 @@ int main(int argc, char **argv)
                             if(routing_table[j][0] == i)
                             {
                                 routing_table[j][1] = INF;
-                                // routing_table[j][0] = INF;
+                                routing_table[j][0] = INF;
                             }
 
                         }
@@ -1122,8 +1122,8 @@ int socket_accept(int targetsocket,int *new_fd)
 void recompute_routing_tables(int router_id, int max_routing_id)
 {
     for(int i=1; i<=max_routing_id; i++) {
-        int candidate_next_hoc = INF; 
-        int candidate_new_cost = INF;
+        unsigned short int candidate_next_hoc = INF; 
+        unsigned short int candidate_new_cost = INF;
         if (i != router_id) {
             if (topology[router_id][i] != INF && topology[router_id][i] < candidate_new_cost) {
                 candidate_new_cost = topology[router_id][i];
@@ -1137,7 +1137,7 @@ void recompute_routing_tables(int router_id, int max_routing_id)
             }
             routing_table[i][0] = candidate_next_hoc;
             routing_table[i][1] = candidate_new_cost;
-            // DV_table[router_id][i] = candidate_new_cost;
+            DV_table[router_id][i] = candidate_new_cost;
         }
     }    
 }
