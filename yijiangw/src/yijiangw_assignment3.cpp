@@ -595,9 +595,9 @@ int main(int argc, char **argv)
                                 printf("[RECEIVED] -> %d(%d)\t COST: %d\n", r_id, true_id, r_new_cost);
                                 topology[host_ID][r_id] = r_new_cost;
                                 // topology[r_id][host_ID] = r_new_cost;
-                                // if(routing_table[r_id][0] == r_id) {
-                                //     routing_table[r_id][1] = r_new_cost;
-                                // }
+                                if(routing_table[r_id][0] == r_id) {
+                                    routing_table[r_id][1] = r_new_cost;
+                                }
                                 /* If new cost less than the record in routing_table,
                                 ** update routing_table[host_ID][0] -> this router
                                 **        routing_table[host_ID][1] -> this new cost
@@ -608,9 +608,9 @@ int main(int argc, char **argv)
                                 //     routing_table[r_id][1] = r_new_cost;
                                 // }
                                 printf("-----AFTER UPDATE-----\n");
-                                // recompute_routing_tables(host_ID, number_of_routers);
-                                // print_routing_table(number_of_routers);
-                                // print_DV_table(number_of_routers);
+                                recompute_routing_tables(host_ID, number_of_routers);
+                                print_routing_table(number_of_routers);
+                                print_DV_table(number_of_routers);
                                 char *response_buffer = (char *)malloc(sizeof(char) * MOSTHEAD_SIZE);
                                 memset(response_buffer, '\0', MOSTHEAD_SIZE);
                                 crp_head->control_code = 3;
