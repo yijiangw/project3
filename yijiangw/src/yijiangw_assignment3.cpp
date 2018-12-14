@@ -258,7 +258,7 @@ int main(int argc, char **argv)
                 if(!DV_in_last_period[i])
                 {
                     lost_time[i]++;
-                    if(i != host_ID && lost_time[i] >= 10)
+                    if(i != host_ID && lost_time[i] == 4)
                     {
                         DV_table[host_ID][i] = INF;
                         topology[host_ID][i] = INF;
