@@ -1135,6 +1135,7 @@ void recompute_routing_tables(int router_id, int max_routing_id)
             }
             routing_table[i][0] = candidate_next_hoc;
             routing_table[i][1] = candidate_new_cost;
+            DV_table[router_id][i] = candidate_new_cost;
         }
     }    
 }
